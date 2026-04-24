@@ -36,6 +36,9 @@ app.get('/api/health', (req, res) => {
 
 // ── Routes (we add these next)
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/gf', require('./routes/gravityforms'));
+require('./services/emailService'); // triggers SMTP verification on startup
 
 // ── 404 handler
 app.use((req, res) => {
