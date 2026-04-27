@@ -3,11 +3,6 @@ const db = require('../db');
 const { log } = require('../utils/audit');
 const { sendAdminNotification } = require('../services/emailService');
 
-// ─────────────────────────────────────────────
-// HELPER — make authenticated request to GF API
-// Teaching: GF REST API uses HTTP Basic Auth with
-// consumer key + secret encoded as base64.
-// ─────────────────────────────────────────────
 const gfRequest = (method, path, body = null) => {
   return new Promise((resolve, reject) => {
     const auth = Buffer.from(
@@ -43,14 +38,7 @@ const gfRequest = (method, path, body = null) => {
   });
 };
 
-
-// ─────────────────────────────────────────────
-// GET FORM FIELDS
-// GET /api/gf/form
-// Used by frontend to know field IDs and choices
-// Teaching: We proxy this through our backend so
-// GF API keys never go to the browser
-// ─────────────────────────────────────────────
+// ── GET FORM FIELDS
 const getForm = async (req, res) => {
   try {
     const formId = process.env.GF_FORM_ID;
@@ -59,15 +47,16 @@ const getForm = async (req, res) => {
     if (result.status !== 200) {
       return res.status(500).json({ error: 'Failed to fetch form' });
     }
+      console.log('GF raw fields:', JSON.stringify(result.data.fields.map(f => ({ id: f.id, type: f.type, label: f.label, visibility: f.visibility })), null, 2));
 
-    // Return only what frontend needs — fields with choices
-    const fields = result.data.fields
-      .filter(f => f.type !== 'html' && f.type !== 'captcha')
+    // Filter out html, captcha, hidden fields — never send these to frontend
+const fields = result.data.fields
+  .filter(f => f.type !== 'html' && f.type !== 'captcha' && f.type !== 'hidden' && f.visibility !== 'hidden')
       .map(f => ({
         id: f.id,
         label: f.label,
         type: f.type,
-        isRequired: f.isRequired,
+        isRequired: f.isRequired || false,
         choices: f.choices || null,
         description: f.description || '',
       }));
@@ -79,15 +68,10 @@ const getForm = async (req, res) => {
   }
 };
 
-
-// ─────────────────────────────────────────────
-// SUBMIT FORM
-// POST /api/gf/submit
-// Body: { values: { [fieldId]: value } }
-// Teaching: GF API expects field values as:
-// { "input_50": "John", "input_33": "Doe", ... }
-// Checkboxes use sub-inputs: input_75_1, input_75_2
-// ─────────────────────────────────────────────
+// ── SUBMIT FORM
+// GF REST API expects: { "input_50": "value", "input_75": "val1,val2" }
+// Checkboxes → join selected values with comma
+// Everything else → plain string
 const submitForm = async (req, res) => {
   const { values } = req.body;
   const userId = req.user.id;
@@ -95,36 +79,32 @@ const submitForm = async (req, res) => {
   try {
     const formId = process.env.GF_FORM_ID;
 
-    // Build GF submission payload
-    // Teaching: GF REST API expects field_values object
-    // with keys like "input_50" for single fields
-    // and "input_75.1", "input_75.2" for checkboxes
-    const fieldValues = {};
+    // Build input object — flat key/value pairs
+const input = {};
+Object.entries(values).forEach(([fieldId, value]) => {
+  if (Array.isArray(value)) {
+    input[String(fieldId)] = value.join(', ');
+  } else {
+    input[String(fieldId)] = value || '';
+  }
+});
 
-    Object.entries(values).forEach(([fieldId, value]) => {
-      if (Array.isArray(value)) {
-        // Checkbox — each selected value gets its own sub-input
-        value.forEach((val, idx) => {
-          fieldValues[`input_${fieldId}_${idx + 1}`] = val;
-        });
-      } else {
-        fieldValues[`input_${fieldId}`] = value || '';
-      }
-    });
-
+    // GF REST API entry payload
     const payload = {
+      ...input,
       form_id: parseInt(formId),
-      field_values: fieldValues,
-      // Skip CAPTCHA validation on server-side submission
-      ip: req.ip,
-      source_url: process.env.FRONTEND_URL,
     };
 
-   const result = await gfRequest(
-  'POST',
-  `/wp-json/gf/v2/forms/${formId}/entries`,
-  payload
-);
+    console.log('GF payload:', JSON.stringify(payload, null, 2));
+
+    const result = await gfRequest(
+      'POST',
+      `/wp-json/gf/v2/forms/${formId}/entries`,
+      payload
+    );
+
+    console.log('GF response status:', result.status);
+    console.log('GF response data:', JSON.stringify(result.data, null, 2));
 
     if (result.status !== 200 && result.status !== 201) {
       console.error('GF submission error:', result.data);
@@ -133,21 +113,21 @@ const submitForm = async (req, res) => {
 
     const entryId = result.data.id;
 
-    // Update user profile_status to SUBMITTED + save GF entry ID
+    // Update user profile_status
     await db.query(
-      `UPDATE users 
-       SET profile_status = 'SUBMITTED', gf_entry_id = $1 
-       WHERE id = $2`,
+      `UPDATE users SET profile_status = 'SUBMITTED', gf_entry_id = $1 WHERE id = $2`,
       [entryId, userId]
     );
 
     // Notify admin
-    const userResult = await db.query('SELECT name, email FROM users WHERE id = $1', [userId]);
+    const userResult = await db.query(
+      'SELECT name, email FROM users WHERE id = $1', [userId]
+    );
     const user = userResult.rows[0];
 
     await sendAdminNotification({
       subject: 'New Profile Submitted for Review',
-      message: `${user.name} (${user.email}) has submitted their membership profile. Entry ID: ${entryId}. Please review and approve in the admin panel.`
+      message: `${user.name} (${user.email}) has submitted their membership profile. Entry ID: ${entryId}.`
     });
 
     await log({
@@ -157,10 +137,7 @@ const submitForm = async (req, res) => {
       req
     });
 
-    return res.json({
-      message: 'Profile submitted successfully',
-      entryId
-    });
+    return res.json({ message: 'Profile submitted successfully', entryId });
 
   } catch (err) {
     console.error('Submit form error:', err);
@@ -168,11 +145,7 @@ const submitForm = async (req, res) => {
   }
 };
 
-
-// ─────────────────────────────────────────────
-// GET ENTRY (admin view submitted answers)
-// GET /api/gf/entry/:entryId
-// ─────────────────────────────────────────────
+// ── GET ENTRY
 const getEntry = async (req, res) => {
   const { entryId } = req.params;
   try {
@@ -186,6 +159,5 @@ const getEntry = async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 };
-
 
 module.exports = { getForm, submitForm, getEntry };
