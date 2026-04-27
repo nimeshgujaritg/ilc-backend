@@ -1,6 +1,6 @@
 const db = require('../db');
 const { log } = require('../utils/audit');
-const { sendAdminNotification } = require('../services/emailService');
+const { sendAdminNotification, sendBookingConfirmationEmail } = require('../services/emailService');
 const { createNotification } = require('../utils/notify');
 // ── GET ALL EVENTS
 const getAllEvents = async (req, res) => {
@@ -125,75 +125,61 @@ const deleteEvent = async (req, res) => {
 // ── BOOK EVENT (CEO only)
 const bookEvent = async (req, res) => {
   const { id } = req.params;
+  const client = await db.pool.connect();
   try {
-    const eventResult = await db.query('SELECT * FROM events WHERE id=$1', [id]);
-    const event = eventResult.rows[0];
-    if (!event) return res.status(404).json({ error: 'Event not found' });
+    await client.query('BEGIN');
 
-    // Check if already booked or waitlisted
-    const existingResult = await db.query(
-      'SELECT * FROM bookings WHERE event_id=$1 AND user_id=$2',
+    // Single query — get event + existing booking + confirmed count
+    const result = await client.query(
+      `SELECT 
+         e.*,
+         b.status AS existing_status,
+         COUNT(CASE WHEN b2.status = 'CONFIRMED' THEN 1 END)::int AS confirmed_count
+       FROM events e
+       LEFT JOIN bookings b ON b.event_id = e.id AND b.user_id = $2
+       LEFT JOIN bookings b2 ON b2.event_id = e.id
+       WHERE e.id = $1
+       GROUP BY e.id, b.status`,
       [id, req.user.id]
     );
-    if (existingResult.rows[0]) {
-      const existing = existingResult.rows[0];
-      if (existing.status === 'CONFIRMED') {
-        return res.status(400).json({ error: 'You have already booked this event' });
-      }
-      if (existing.status === 'WAITLIST') {
-        return res.status(400).json({ error: 'You are already on the waitlist' });
-      }
+
+    const event = result.rows[0];
+    if (!event) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Event not found' });
     }
 
-    // Check confirmed booking count against capacity
-    let status = 'CONFIRMED';
-    if (event.capacity) {
-      const countResult = await db.query(
-        `SELECT COUNT(*)::int AS count FROM bookings 
-         WHERE event_id=$1 AND status='CONFIRMED'`,
-        [id]
-      );
-      if (countResult.rows[0].count >= event.capacity) {
-        status = 'WAITLIST';
-      }
-    }
+    if (event.existing_status === 'CONFIRMED')
+      return res.status(400).json({ error: 'You have already booked this event' });
+    if (event.existing_status === 'WAITLIST')
+      return res.status(400).json({ error: 'You are already on the waitlist' });
 
-    // Insert booking with status
-    await db.query(
+    const status = event.capacity && event.confirmed_count >= event.capacity
+      ? 'WAITLIST' : 'CONFIRMED';
+
+    await client.query(
       'INSERT INTO bookings (event_id, user_id, status) VALUES ($1, $2, $3)',
       [id, req.user.id, status]
     );
 
-    await log({
-      userId: req.user.id,
-      action: status === 'CONFIRMED' ? 'EVENT_BOOKED' : 'EVENT_WAITLISTED',
-      details: { eventId: id, title: event.title },
-      req
-    });
+    await client.query('COMMIT');
 
-    // Notify admin
-    sendAdminNotification({
-      subject: status === 'CONFIRMED' ? 'New Event Booking' : 'New Waitlist Entry',
-      message: `${req.user.name} has ${status === 'CONFIRMED' ? 'booked a spot' : 'joined the waitlist'} for <strong>${event.title}</strong>.`
-    }).catch(() => {});
+    // Non-critical — fire and forget after commit
+    log({ userId: req.user.id, action: status === 'CONFIRMED' ? 'EVENT_BOOKED' : 'EVENT_WAITLISTED', details: { eventId: id, title: event.title }, req }).catch(() => {});
+    sendAdminNotification({ subject: status === 'CONFIRMED' ? 'New Event Booking' : 'New Waitlist Entry', message: `${req.user.name} has ${status === 'CONFIRMED' ? 'booked' : 'joined waitlist for'} <strong>${event.title}</strong>.` }).catch(() => {});
+createNotification({ userId: req.user.id, title: status === 'CONFIRMED' ? 'Booking Confirmed' : 'Added to Waitlist', message: status === 'CONFIRMED' ? `You have successfully booked a spot at ${event.title}.` : `You have been added to the waitlist for ${event.title}.`, type: 'event' }).catch(() => {});
 
-    await createNotification({
-      userId: req.user.id,
-      title: status === 'CONFIRMED' ? 'Event Booking Confirmed' : 'Added to Waitlist',
-      message: status === 'CONFIRMED'
-        ? `You have successfully booked a spot at ${event.title}.`
-        : `You have been added to the waitlist for ${event.title}.`,
-      type: 'event'
-    });
-
-    return res.json({
-      message: status === 'CONFIRMED' ? 'Booking confirmed' : 'Added to waitlist',
-      status,
-      event
-    });
+// Send confirmation email only if no Calendly link
+if (status === 'CONFIRMED' && !event.calendly_link) {
+  sendBookingConfirmationEmail(req.user, event).catch(() => {});
+}
+    return res.json({ message: status === 'CONFIRMED' ? 'Booking confirmed' : 'Added to waitlist', status, event });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Book event error:', err);
     return res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
   }
 };
 

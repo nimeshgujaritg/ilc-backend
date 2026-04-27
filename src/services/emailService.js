@@ -323,6 +323,66 @@ const sendBroadcastEmail = async (user, subject, message) => {
   return send({ to: user.email, subject, html });
 };
 
+// ── BOOKING CONFIRMATION EMAIL
+const sendBookingConfirmationEmail = async (user, event) => {
+  const eventDate = new Date(event.date).toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+  });
+  const eventTime = event.time ? (() => {
+    const [h, m] = event.time.split(':');
+    const d = new Date();
+    d.setHours(parseInt(h), parseInt(m));
+    return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  })() : null;
+
+  const html = emailWrapper(`
+    <p style="margin:0 0 6px;color:#EDA300;font-size:11px;letter-spacing:3px;text-transform:uppercase;font-family:Arial,sans-serif;font-weight:bold;">Booking Confirmed</p>
+    <h2 style="margin:0 0 20px;color:#1a0525;font-size:28px;font-weight:normal;">You're confirmed, ${user.name}.</h2>
+    <p style="color:#1f2937;font-size:15px;line-height:1.8;margin:0 0 28px;font-family:Arial,sans-serif;">
+      Your spot has been reserved for the following ILC event.
+    </p>
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;margin:0 0 28px;">
+      <tr>
+        <td style="padding:28px 32px;">
+          <p style="margin:0 0 6px;font-family:Arial,sans-serif;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:2px;font-weight:bold;">Event</p>
+          <p style="margin:0 0 20px;color:#1a0525;font-size:22px;font-weight:bold;font-family:Arial,sans-serif;">${event.title}</p>
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="padding-bottom:12px;">
+                <p style="margin:0 0 4px;font-family:Arial,sans-serif;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:2px;font-weight:bold;">Date</p>
+                <p style="margin:0;color:#1f2937;font-size:14px;font-family:Arial,sans-serif;font-weight:bold;">${eventDate}</p>
+              </td>
+            </tr>
+            ${eventTime ? `
+            <tr>
+              <td style="padding-bottom:12px;">
+                <p style="margin:0 0 4px;font-family:Arial,sans-serif;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:2px;font-weight:bold;">Time</p>
+                <p style="margin:0;color:#1f2937;font-size:14px;font-family:Arial,sans-serif;font-weight:bold;">${eventTime}</p>
+              </td>
+            </tr>
+            ` : ''}
+            ${event.location ? `
+            <tr>
+              <td>
+                <p style="margin:0 0 4px;font-family:Arial,sans-serif;font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:2px;font-weight:bold;">Location</p>
+                <p style="margin:0;color:#1f2937;font-size:14px;font-family:Arial,sans-serif;font-weight:bold;">${event.location}</p>
+              </td>
+            </tr>
+            ` : ''}
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    <p style="color:#6b7280;font-size:13px;line-height:1.8;margin:0;font-family:Arial,sans-serif;">
+      We look forward to seeing you at the event. Log in to the portal to view full details.
+    </p>
+  `);
+  return send({ to: user.email, subject: `Booking Confirmed — ${event.title}`, html });
+};
+
 module.exports = {
   sendWelcomeEmail,
   sendOtpEmail,
@@ -332,4 +392,5 @@ module.exports = {
   sendAdminNotification,
   sendEventReminderEmail,
   sendBroadcastEmail,
+  sendBookingConfirmationEmail,
 };

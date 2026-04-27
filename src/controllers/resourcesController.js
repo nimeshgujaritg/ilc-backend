@@ -35,7 +35,8 @@ const createResource = async (req, res) => {
 const deleteResource = async (req, res) => {
   const { id } = req.params;
   try {
-    await db.query('DELETE FROM resources WHERE id=$1', [id]);
+    const result = await db.query('DELETE FROM resources WHERE id=$1 RETURNING id', [id]);
+    if (!result.rows[0]) return res.status(404).json({ error: 'Resource not found' });
     await log({ userId: req.user.id, action: 'RESOURCE_DELETED', details: { id }, req });
     return res.json({ message: 'Resource deleted' });
   } catch (err) {
@@ -79,7 +80,8 @@ const createGlimpse = async (req, res) => {
 const deleteGlimpse = async (req, res) => {
   const { id } = req.params;
   try {
-    await db.query('DELETE FROM glimpses WHERE id=$1', [id]);
+    const result = await db.query('DELETE FROM glimpses WHERE id=$1 RETURNING id', [id]);
+    if (!result.rows[0]) return res.status(404).json({ error: 'Glimpse not found' });
     await log({ userId: req.user.id, action: 'GLIMPSE_DELETED', details: { id }, req });
     return res.json({ message: 'Glimpse deleted' });
   } catch (err) {

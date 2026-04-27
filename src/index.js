@@ -20,8 +20,9 @@ app.use(cors({
 // ── Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: 'Too many requests, please try again later.'
+  max: process.env.NODE_ENV === 'development' ? 10000 : 100,
+  message: 'Too many requests, please try again later.',
+  validate: { ip: false }  // fixes IPv6 warning
 });
 app.use('/api/', limiter);
 
@@ -44,6 +45,7 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/gf', require('./routes/gravityforms'));
 app.use('/api/events', require('./routes/events'));
 app.use('/api/announcements', require('./routes/announcements'));
+app.use('/api/connections', require('./routes/connections'));
 app.use('/api/upload', require('./routes/upload'));
 app.use('/api', require('./routes/resources'));
 require('./services/emailService'); // triggers SMTP verification on startup

@@ -11,14 +11,13 @@ const pool = new Pool({
   password: process.env.DB_PASS,
   ssl:      false,
 
-  // ── Connection pool settings
-  max:                20,   // max connections in pool
-  min:                2,    // keep at least 2 alive
-  idleTimeoutMillis:  30000, // close idle connections after 30s
-  connectionTimeoutMillis: 5000, // timeout if can't connect in 5s
+  max:                20,
+  min:                2,
+  idleTimeoutMillis:  30000,
+  connectionTimeoutMillis: 5000,
+  statement_timeout:  10000,   // ← ADD: kill any query hanging over 10s
 
-  // ── Keepalive — prevents connection drops
-  keepAlive:         true,
+  keepAlive: true,
   keepAliveInitialDelayMillis: 10000,
 });
 
@@ -61,6 +60,7 @@ setInterval(async () => {
   } catch (err) {
     console.warn('⚠️ DB health check failed:', err.message);
   }
-}, 60000); // ping every 60 seconds
+}, 5 * 60 * 1000);
+
 
 module.exports = { query, pool };

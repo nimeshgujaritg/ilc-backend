@@ -185,9 +185,11 @@ const bulkCreateUsers = async (req, res) => {
 
     await client.query('COMMIT');
 
-    for (const { user, tempPassword } of createdUsersWithPasswords) {
-      await sendWelcomeEmail(user, tempPassword);
-    }
+    await Promise.allSettled(
+  createdUsersWithPasswords.map(({ user, tempPassword }) =>
+    sendWelcomeEmail(user, tempPassword)
+  )
+);
 
     if (results.length > 0) {
       await sendAdminNotification({
@@ -382,11 +384,11 @@ const markSubmitted = async (req, res) => {
 const getMembers = async (req, res) => {
   try {
     const result = await db.query(
-  `SELECT id, name, title, initials, photo_url, linkedin_url, created_at
-   FROM users 
-   WHERE role = 'CEO' AND profile_status = 'APPROVED'
-   ORDER BY name ASC`
-);
+      `SELECT id, name, title, initials, photo_url, linkedin_url, phone, email, created_at
+       FROM users 
+       WHERE role = 'CEO' AND profile_status = 'APPROVED'
+       ORDER BY name ASC`
+    );
     return res.json({ members: result.rows });
   } catch (err) {
     console.error('Get members error:', err);
@@ -465,12 +467,7 @@ const broadcastEmail = async (req, res) => {
 
     for (const ceo of ceos) {
       try {
-        await sendAdminNotification({
-          subject: subject.trim(),
-          message: `Dear ${ceo.name},<br/><br/>${message.trim()}`
-        });
-        // Send to CEO directly
-        const { sendWelcomeEmail, ...emailService } = require('../services/emailService');
+        await sendBroadcastEmail(ceo, subject.trim(), message.trim());
         sent++;
       } catch (err) {
         console.error(`Failed to send to ${ceo.email}:`, err.message);
@@ -494,11 +491,27 @@ const broadcastEmail = async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 };
+
+const getAdminStats = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(CASE WHEN profile_status = 'SUBMITTED' THEN 1 END)::int AS pending,
+         COUNT(CASE WHEN profile_status = 'APPROVED' THEN 1 END)::int AS approved,
+         COUNT(CASE WHEN profile_status = 'PENDING' THEN 1 END)::int AS pending_form
+       FROM users`
+    );
+    return res.json(result.rows[0]);
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
 module.exports = {
   getAllUsers, createUser, approveUser, rejectUser,
   bulkCreateUsers, assignSpoc,
   getAllSpocs, createSpoc, deleteSpoc,
   getAuditLogs, markSubmitted, getMembers,
   getNotifications, markNotificationRead, markAllNotificationsRead,
-  broadcastEmail
+  broadcastEmail,getAdminStats
 };
