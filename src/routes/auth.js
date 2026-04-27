@@ -17,6 +17,7 @@ const validate = (req, res, next) => {
 const otpRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 3,
+  validate: { xForwardedForHeader: false },
   keyGenerator: (req) => req.body.email?.toLowerCase().trim() || req.ip,
   handler: (req, res) => res.status(429).json({
     error: 'Too many OTP requests. Please wait 15 minutes before trying again.'
@@ -29,13 +30,13 @@ const otpRateLimit = rateLimit({
 const loginRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  validate: { xForwardedForHeader: false },
   handler: (req, res) => res.status(429).json({
     error: 'Too many login attempts. Please wait 15 minutes before trying again.'
   }),
   standardHeaders: true,
   legacyHeaders: false,
 });
-
 // POST /api/auth/login
 router.post('/login',
   loginRateLimit,

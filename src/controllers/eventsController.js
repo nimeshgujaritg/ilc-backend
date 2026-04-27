@@ -1,7 +1,7 @@
 const db = require('../db');
 const { log } = require('../utils/audit');
 const { sendAdminNotification } = require('../services/emailService');
-
+const { createNotification } = require('../utils/notify');
 // ── GET ALL EVENTS
 const getAllEvents = async (req, res) => {
   try {
@@ -68,14 +68,14 @@ const getEventById = async (req, res) => {
 
 // ── CREATE EVENT (admin only)
 const createEvent = async (req, res) => {
-  const { title, date, time, location, description, capacity, calendly_link } = req.body;
+  const { title, date, time, location, description, capacity, calendly_link, image_url } = req.body;
   try {
     const result = await db.query(
-      `INSERT INTO events (title, date, time, location, description, capacity, calendly_link, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO events (title, date, time, location, description, capacity, calendly_link, image_url, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [title, date, time || null, location || null, description || null,
-       capacity || null, calendly_link || null, req.user.id]
+       capacity || null, calendly_link || null, image_url || null, req.user.id]
     );
     await log({ userId: req.user.id, action: 'EVENT_CREATED', details: { title }, req });
     return res.status(201).json({ event: result.rows[0] });
@@ -88,16 +88,16 @@ const createEvent = async (req, res) => {
 // ── UPDATE EVENT (admin only)
 const updateEvent = async (req, res) => {
   const { id } = req.params;
-  const { title, date, time, location, description, capacity, calendly_link } = req.body;
+  const { title, date, time, location, description, capacity, calendly_link, image_url } = req.body;
   try {
     const result = await db.query(
       `UPDATE events
        SET title=$1, date=$2, time=$3, location=$4, description=$5,
-           capacity=$6, calendly_link=$7, updated_at=NOW()
-       WHERE id=$8
+           capacity=$6, calendly_link=$7, image_url=$8, updated_at=NOW()
+       WHERE id=$9
        RETURNING *`,
       [title, date, time || null, location || null, description || null,
-       capacity || null, calendly_link || null, id]
+       capacity || null, calendly_link || null, image_url || null, id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Event not found' });
     await log({ userId: req.user.id, action: 'EVENT_UPDATED', details: { id, title }, req });
@@ -177,6 +177,15 @@ const bookEvent = async (req, res) => {
       message: `${req.user.name} has ${status === 'CONFIRMED' ? 'booked a spot' : 'joined the waitlist'} for <strong>${event.title}</strong>.`
     }).catch(() => {});
 
+    await createNotification({
+      userId: req.user.id,
+      title: status === 'CONFIRMED' ? 'Event Booking Confirmed' : 'Added to Waitlist',
+      message: status === 'CONFIRMED'
+        ? `You have successfully booked a spot at ${event.title}.`
+        : `You have been added to the waitlist for ${event.title}.`,
+      type: 'event'
+    });
+
     return res.json({
       message: status === 'CONFIRMED' ? 'Booking confirmed' : 'Added to waitlist',
       status,
@@ -187,5 +196,6 @@ const bookEvent = async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 };
+
 
 module.exports = { getAllEvents, getEventById, createEvent, updateEvent, deleteEvent, bookEvent };

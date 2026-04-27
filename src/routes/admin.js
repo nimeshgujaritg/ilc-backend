@@ -57,8 +57,12 @@ router.post('/spocs',
 );
 
 router.delete('/spocs/:id', adminOnly, adminController.deleteSpoc);
-
+router.get('/members-list', [auth], adminController.getMembers);
 // ── AUDIT LOGS
 router.get('/audit-logs', adminOnly, adminController.getAuditLogs);
 
+// ── NOTIFICATIONS
+router.get('/notifications',          auth, adminController.getNotifications);
+router.patch('/notifications/:id/read', auth, adminController.markNotificationRead);
+router.patch('/notifications/read-all', auth, adminController.markAllNotificationsRead);
 module.exports = router;

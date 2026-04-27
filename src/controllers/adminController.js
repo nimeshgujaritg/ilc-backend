@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const db = require('../db');
 const { log } = require('../utils/audit');
+const { createNotification } = require('../utils/notify');
 const {
   sendWelcomeEmail,
   sendApprovalEmail,
@@ -47,7 +48,7 @@ const getAllUsers = async (req, res) => {
 // CREATE SINGLE USER
 // ─────────────────────────────────────────────
 const createUser = async (req, res) => {
-  const { email, name, title, role, photo_url } = req.body;
+  const { email, name, title, role, photo_url, phone, spoc_id } = req.body;
   try {
     const existing = await db.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
     if (existing.rows.length > 0) {
@@ -59,10 +60,10 @@ const createUser = async (req, res) => {
     const initials = getInitials(name);
 
     const result = await db.query(
-      `INSERT INTO users (email, password_hash, name, title, initials, role, photo_url, is_first_login, profile_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true, 'PENDING')
-       RETURNING id, email, name, title, initials, role, photo_url, is_first_login, profile_status, created_at`,
-      [email.toLowerCase().trim(), passwordHash, name.trim(), title.trim(), initials, role, photo_url || null]
+      `INSERT INTO users (email, password_hash, name, title, initials, role, photo_url, phone, spoc_id, is_first_login, profile_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, 'PENDING')
+       RETURNING id, email, name, title, initials, role, photo_url, phone, spoc_id, is_first_login, profile_status, created_at`,
+      [email.toLowerCase().trim(), passwordHash, name.trim(), title.trim(), initials, role, photo_url || null, phone || null, spoc_id || null]
     );
 
     const newUser = result.rows[0];
@@ -98,6 +99,12 @@ const approveUser = async (req, res) => {
 
     await db.query(`UPDATE users SET profile_status = 'APPROVED' WHERE id = $1`, [id]);
     await sendApprovalEmail(user);
+    await createNotification({
+  userId: user.id,
+  title: 'Profile Approved',
+  message: 'Your membership profile has been approved. Welcome to the Council!',
+  type: 'approval'
+});
     await sendAdminNotification({
       subject: 'Member Profile Approved',
       message: `${user.name} (${user.email}) has been approved by ${req.user.email}.`
@@ -164,11 +171,11 @@ const bulkCreateUsers = async (req, res) => {
       const initials = getInitials(u.name);
 
       const result = await client.query(
-        `INSERT INTO users (email, password_hash, name, title, initials, role, photo_url, is_first_login, profile_status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, true, 'PENDING')
-         RETURNING id, email, name, title, initials, role, photo_url, created_at`,
-        [u.email.toLowerCase().trim(), passwordHash, u.name.trim(), u.title.trim(), initials, u.role || 'CEO', u.photo_url || null]
-      );
+  `INSERT INTO users (email, password_hash, name, title, initials, role, photo_url, phone, spoc_id, is_first_login, profile_status)
+   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, 'PENDING')
+   RETURNING id, email, name, title, initials, role, photo_url, phone, spoc_id, created_at`,
+  [u.email.toLowerCase().trim(), passwordHash, u.name.trim(), u.title.trim(), initials, u.role || 'CEO', u.photo_url || null, u.phone || null, u.spoc_id || null]
+);
 
       const newUser = result.rows[0];
       results.push(newUser);
@@ -233,7 +240,14 @@ const assignSpoc = async (req, res) => {
 
     // Email the CEO their new SPOC details
     await sendSpocChangeEmail(user, spoc);
-
+await createNotification({
+  userId: user.id,
+  title: 'SPOC Updated',
+  message: spoc
+    ? `Your dedicated SPOC has been updated to ${spoc.name}.`
+    : 'Your SPOC assignment has been removed.',
+  type: 'spoc'
+});
     // Notify admin
     await sendAdminNotification({
       subject: 'SPOC Assignment Updated',
@@ -361,10 +375,75 @@ const markSubmitted = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────
+// GET MEMBERS (CEO list for members page)
+// ─────────────────────────────────────────────
+const getMembers = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT id, name, title, initials, photo_url, created_at
+       FROM users 
+       WHERE role = 'CEO' AND profile_status = 'APPROVED'
+       ORDER BY name ASC`
+    );
+    return res.json({ members: result.rows });
+  } catch (err) {
+    console.error('Get members error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────
+const getNotifications = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT * FROM notifications 
+       WHERE user_id = $1 
+       ORDER BY created_at DESC 
+       LIMIT 20`,
+      [req.user.id]
+    );
+    const unread = result.rows.filter(n => !n.is_read).length;
+    return res.json({ notifications: result.rows, unread });
+  } catch (err) {
+    console.error('Get notifications error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+
+const markNotificationRead = async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query(
+      'UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2',
+      [id, req.user.id]
+    );
+    return res.json({ message: 'Marked as read' });
+  } catch (err) {
+    console.error('Mark read error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+
+const markAllNotificationsRead = async (req, res) => {
+  try {
+    await db.query(
+      'UPDATE notifications SET is_read = true WHERE user_id = $1',
+      [req.user.id]
+    );
+    return res.json({ message: 'All marked as read' });
+  } catch (err) {
+    console.error('Mark all read error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
 
 module.exports = {
   getAllUsers, createUser, approveUser, rejectUser,
   bulkCreateUsers, assignSpoc,
   getAllSpocs, createSpoc, deleteSpoc,
-  getAuditLogs, markSubmitted
+  getAuditLogs, markSubmitted, getMembers,
+  getNotifications, markNotificationRead, markAllNotificationsRead
 };
