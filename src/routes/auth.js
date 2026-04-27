@@ -91,5 +91,5 @@ router.post('/verify-otp',
   validate,
   authController.verifyOtp
 );
-
+router.patch('/linkedin', authMiddleware, authController.updateLinkedin);
 module.exports = router;

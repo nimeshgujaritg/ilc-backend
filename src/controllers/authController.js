@@ -211,5 +211,16 @@ const verifyOtp = async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 };
-
-module.exports = { login, changePassword, logout, getMe, requestOtp, verifyOtp };
+const updateLinkedin = async (req, res) => {
+  const { linkedin_url } = req.body;
+  try {
+    await db.query(
+      'UPDATE users SET linkedin_url = $1 WHERE id = $2',
+      [linkedin_url || null, req.user.id]
+    );
+    return res.json({ message: 'LinkedIn updated' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+module.exports = { login, changePassword, logout, getMe, requestOtp, verifyOtp, updateLinkedin };

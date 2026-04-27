@@ -68,11 +68,11 @@ const createUser = async (req, res) => {
 
     const newUser = result.rows[0];
 
-    await sendWelcomeEmail(newUser, tempPassword);
-    await sendAdminNotification({
-      subject: 'New Member Created',
-      message: `${name} (${email}) has been added to the ILC Portal with role: ${role}.`
-    });
+    sendWelcomeEmail(newUser, tempPassword).catch(err => console.error('Welcome email failed:', err));
+sendAdminNotification({
+  subject: 'New Member Created',
+  message: `${name} (${email}) has been added to the ILC Portal with role: ${role}.`
+}).catch(err => console.error('Admin notif failed:', err));
 
     await log({ userId: req.user.id, action: 'USER_CREATED', details: { createdEmail: email, role }, req });
 
@@ -381,11 +381,11 @@ const markSubmitted = async (req, res) => {
 const getMembers = async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT id, name, title, initials, photo_url, created_at
-       FROM users 
-       WHERE role = 'CEO' AND profile_status = 'APPROVED'
-       ORDER BY name ASC`
-    );
+  `SELECT id, name, title, initials, photo_url, linkedin_url, created_at
+   FROM users 
+   WHERE role = 'CEO' AND profile_status = 'APPROVED'
+   ORDER BY name ASC`
+);
     return res.json({ members: result.rows });
   } catch (err) {
     console.error('Get members error:', err);

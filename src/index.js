@@ -26,7 +26,8 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // ── Body parser
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // ── Health check
 app.get('/api/health', (req, res) => {

@@ -16,12 +16,12 @@ const getAllResources = async (req, res) => {
 
 // ── CREATE RESOURCE (admin only)
 const createResource = async (req, res) => {
-  const { title, description, link, category } = req.body;
+  const { title, description, link, category, image_url } = req.body;
   try {
     const result = await db.query(
-      `INSERT INTO resources (title, description, link, category, created_by)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [title, description || null, link || null, category || 'Article', req.user.id]
+      `INSERT INTO resources (title, description, link, category, image_url, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [title, description || null, link || null, category || 'Article', image_url || null, req.user.id]
     );
     await log({ userId: req.user.id, action: 'RESOURCE_CREATED', details: { title }, req });
     return res.status(201).json({ resource: result.rows[0] });
