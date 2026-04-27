@@ -43,6 +43,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/gf', require('./routes/gravityforms'));
 app.use('/api/events', require('./routes/events'));
+app.use('/api/announcements', require('./routes/announcements'));
 app.use('/api/upload', require('./routes/upload'));
 app.use('/api', require('./routes/resources'));
 require('./services/emailService'); // triggers SMTP verification on startup

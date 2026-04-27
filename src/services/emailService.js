@@ -309,6 +309,20 @@ const sendEventReminderEmail = async (user, event) => {
   return send({ to: user.email, subject: `Reminder: ${event.title} — Tomorrow`, html });
 };
 
+const sendBroadcastEmail = async (user, subject, message) => {
+  const html = emailWrapper(`
+    <p style="margin:0 0 6px;color:#EDA300;font-size:11px;letter-spacing:3px;text-transform:uppercase;font-family:Arial,sans-serif;font-weight:bold;">ILC Communication</p>
+    <h2 style="margin:0 0 20px;color:#1a0525;font-size:28px;font-weight:normal;">Dear ${user.name},</h2>
+    <div style="color:#1f2937;font-size:15px;line-height:1.8;margin:0 0 28px;font-family:Arial,sans-serif;">
+      ${message.replace(/\n/g, '<br/>')}
+    </div>
+    <p style="color:#6b7280;font-size:13px;font-family:Arial,sans-serif;margin:0;">
+      This is an official communication from India Leadership Council.
+    </p>
+  `);
+  return send({ to: user.email, subject, html });
+};
+
 module.exports = {
   sendWelcomeEmail,
   sendOtpEmail,
@@ -317,4 +331,5 @@ module.exports = {
   sendSpocChangeEmail,
   sendAdminNotification,
   sendEventReminderEmail,
+  sendBroadcastEmail,
 };

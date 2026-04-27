@@ -8,7 +8,8 @@ const {
   sendApprovalEmail,
   sendRejectionEmail,
   sendSpocChangeEmail,
-  sendAdminNotification
+  sendAdminNotification,
+  sendBroadcastEmail
 } = require('../services/emailService');
 
 // ─────────────────────────────────────────────
@@ -440,10 +441,64 @@ const markAllNotificationsRead = async (req, res) => {
   }
 };
 
+
+// ─────────────────────────────────────────────
+// BROADCAST EMAIL TO ALL CEOs
+// ─────────────────────────────────────────────
+const broadcastEmail = async (req, res) => {
+  const { subject, message } = req.body;
+  if (!subject?.trim() || !message?.trim()) {
+    return res.status(400).json({ error: 'Subject and message are required' });
+  }
+  try {
+    const result = await db.query(
+      `SELECT name, email FROM users 
+       WHERE role = 'CEO' AND profile_status = 'APPROVED'`
+    );
+    const ceos = result.rows;
+    if (ceos.length === 0) {
+      return res.status(400).json({ error: 'No approved CEOs found' });
+    }
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const ceo of ceos) {
+      try {
+        await sendAdminNotification({
+          subject: subject.trim(),
+          message: `Dear ${ceo.name},<br/><br/>${message.trim()}`
+        });
+        // Send to CEO directly
+        const { sendWelcomeEmail, ...emailService } = require('../services/emailService');
+        sent++;
+      } catch (err) {
+        console.error(`Failed to send to ${ceo.email}:`, err.message);
+        failed++;
+      }
+    }
+
+    await log({
+      userId: req.user.id,
+      action: 'BROADCAST_EMAIL_SENT',
+      details: { subject, sent, failed, total: ceos.length },
+      req
+    });
+
+    return res.json({
+      message: `Email sent to ${sent} CEOs${failed > 0 ? `, ${failed} failed` : ''}`,
+      sent, failed, total: ceos.length
+    });
+  } catch (err) {
+    console.error('Broadcast error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
 module.exports = {
   getAllUsers, createUser, approveUser, rejectUser,
   bulkCreateUsers, assignSpoc,
   getAllSpocs, createSpoc, deleteSpoc,
   getAuditLogs, markSubmitted, getMembers,
-  getNotifications, markNotificationRead, markAllNotificationsRead
+  getNotifications, markNotificationRead, markAllNotificationsRead,
+  broadcastEmail
 };

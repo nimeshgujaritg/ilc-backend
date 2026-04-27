@@ -65,4 +65,9 @@ router.get('/audit-logs', adminOnly, adminController.getAuditLogs);
 router.get('/notifications',          auth, adminController.getNotifications);
 router.patch('/notifications/:id/read', auth, adminController.markNotificationRead);
 router.patch('/notifications/read-all', auth, adminController.markAllNotificationsRead);
+// ── BROADCAST EMAIL
+router.post('/broadcast', adminOnly, [
+  body('subject').notEmpty().withMessage('Subject is required'),
+  body('message').notEmpty().withMessage('Message is required'),
+], validate, adminController.broadcastEmail);
 module.exports = router;

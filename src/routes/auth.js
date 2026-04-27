@@ -30,7 +30,8 @@ const otpRateLimit = rateLimit({
 const loginRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
-  validate: { xForwardedForHeader: false },
+  validate: { xForwardedForHeader: false, ip: false },
+  keyGenerator: (req) => req.ip || 'unknown',
   handler: (req, res) => res.status(429).json({
     error: 'Too many login attempts. Please wait 15 minutes before trying again.'
   }),
