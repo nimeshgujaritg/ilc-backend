@@ -223,4 +223,39 @@ const updateLinkedin = async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 };
-module.exports = { login, changePassword, logout, getMe, requestOtp, verifyOtp, updateLinkedin };
+
+const updateProfile = async (req, res) => {
+  const { name, title, phone, photo_url } = req.body;
+  try {
+    const result = await db.query(
+      `UPDATE users 
+       SET name = COALESCE($1, name),
+           title = COALESCE($2, title),
+           phone = $3,
+           photo_url = $4,
+           initials = CASE 
+             WHEN $1 IS NOT NULL THEN $5
+             ELSE initials 
+           END
+       WHERE id = $6
+       RETURNING id, name, title, phone, photo_url, initials, email, role, profile_status, is_first_login`,
+      [
+        name?.trim() || null,
+        title?.trim() || null,
+        phone?.trim() || null,
+        photo_url || null,
+        name ? (name.trim().split(' ').filter(Boolean).length === 1
+          ? name.trim().slice(0, 2).toUpperCase()
+          : (name.trim().split(' ')[0][0] + name.trim().split(' ').filter(Boolean).slice(-1)[0][0]).toUpperCase()
+        ) : null,
+        req.user.id
+      ]
+    );
+    const updated = result.rows[0];
+    return res.json({ message: 'Profile updated', user: updated });
+  } catch (err) {
+    console.error('Update profile error:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+};
+module.exports = { login, changePassword, logout, getMe, requestOtp, verifyOtp, updateLinkedin, updateProfile };
